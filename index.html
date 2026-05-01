@@ -803,14 +803,17 @@ textarea.fi { resize: vertical; min-height: 90px; }
       <div id="sec-gaeste" style="display:none;">
         <div class="section-header">
           <div><div class="section-title">Gästeliste</div><div class="section-subtitle" id="guest-count-label">Wird geladen...</div></div>
-          <button class="btn btn-gold btn-sm" style="width:auto;" onclick="openModal('modal-guest')">+ Gast hinzufügen</button>
+          <button class="btn btn-gold btn-sm" style="width:auto;" onclick="openAddGuest()">+ Gast hinzufügen</button>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;" id="capacity-cards"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1.25rem;" id="guest-filters">
-          <button class="tag" style="cursor:pointer;" onclick="filterGuests('all',this)">Alle</button>
+          <button class="tag" style="cursor:pointer;background:var(--gold-light);" onclick="filterGuests('all',this)">Alle</button>
           <button class="tag" style="cursor:pointer;" onclick="filterGuests('yes',this)">✅ Zugesagt</button>
           <button class="tag" style="cursor:pointer;" onclick="filterGuests('maybe',this)">❓ Vielleicht</button>
           <button class="tag" style="cursor:pointer;" onclick="filterGuests('no',this)">❌ Abgesagt</button>
           <button class="tag" style="cursor:pointer;" onclick="filterGuests('pending',this)">⏳ Ausstehend</button>
+          <button class="tag" style="cursor:pointer;" onclick="filterGuests('ceremony',this)">⛪ Trauung</button>
+          <button class="tag" style="cursor:pointer;" onclick="filterGuests('dinner',this)">🎉 Abendessen</button>
         </div>
         <div id="guest-list"></div>
       </div>
@@ -879,13 +882,21 @@ textarea.fi { resize: vertical; min-height: 90px; }
 <!-- Gast -->
 <div id="modal-guest" class="modal-overlay" style="display:none;" onclick="moc(event,'modal-guest')">
   <div class="modal">
-    <div class="modal-title">Gast hinzufügen</div>
+    <div class="modal-title" id="guest-modal-title">Gast hinzufügen</div>
+    <input type="hidden" id="g-id"/>
     <div class="fg"><label class="fl">Name</label><input type="text" id="g-name" class="fi" placeholder="Vor- und Nachname"/></div>
     <div class="fg"><label class="fl">Seite</label>
       <select id="g-side" class="fi">
         <option value="Enea">Eneas Seite</option>
         <option value="Luis">Luis' Seite</option>
         <option value="Beide">Befreundet mit beiden</option>
+      </select>
+    </div>
+    <div class="fg"><label class="fl">Eingeladen für</label>
+      <select id="g-invite" class="fi">
+        <option value="both">⛪🎉 Trauung & Abendessen</option>
+        <option value="ceremony">⛪ Nur Trauung</option>
+        <option value="dinner">🎉 Nur Abendessen</option>
       </select>
     </div>
     <div class="fg"><label class="fl">Status</label>
@@ -1130,6 +1141,28 @@ async function renderDashboard() {
 // ═══ GÄSTELISTE ═══
 let guestFilter='all';
 
+function openAddGuest(){
+  document.getElementById('guest-modal-title').textContent='Gast hinzufügen';
+  document.getElementById('g-id').value='';
+  document.getElementById('g-name').value='';
+  document.getElementById('g-note').value='';
+  document.getElementById('g-status').value='pending';
+  document.getElementById('g-invite').value='both';
+  document.getElementById('g-side').value='Enea';
+  openModal('modal-guest');
+}
+
+function editGuest(id,name,side,status,note,invite){
+  document.getElementById('guest-modal-title').textContent='Gast bearbeiten';
+  document.getElementById('g-id').value=id;
+  document.getElementById('g-name').value=name;
+  document.getElementById('g-side').value=side||'Enea';
+  document.getElementById('g-status').value=status||'pending';
+  document.getElementById('g-note').value=note||'';
+  document.getElementById('g-invite').value=invite||'both';
+  openModal('modal-guest');
+}
+
 function filterGuests(f,btn){
   guestFilter=f;
   document.querySelectorAll('#guest-filters .tag').forEach(b=>b.style.background='');
@@ -1138,31 +1171,80 @@ function filterGuests(f,btn){
 }
 
 async function renderGuests(){
-  const{data}=await sb.from('hw_guests').select('*').order('name');
-  const G=data||[];
-  const filtered=guestFilter==='all'?G:G.filter(g=>g.status===guestFilter);
-  document.getElementById('guest-count-label').textContent=`${G.filter(g=>g.status==='yes').length} zugesagt · ${G.length} total`;
+  const[{data:guests},{data:locs}]=await Promise.all([
+    sb.from('hw_guests').select('*').order('name'),
+    sb.from('hw_locations').select('*')
+  ]);
+  const G=guests||[], L=locs||[];
+
+  // Capacity cards
+  const ceremony=L.find(l=>l.type==='Trauung');
+  const dinner=L.find(l=>l.type==='Feier');
+  const ceremonyGuests=G.filter(g=>g.status==='yes'&&(g.invite_type==='ceremony'||g.invite_type==='both'||!g.invite_type));
+  const dinnerGuests=G.filter(g=>g.status==='yes'&&(g.invite_type==='dinner'||g.invite_type==='both'||!g.invite_type));
+
+  function capCard(icon, title, confirmed, capacity){
+    const free=capacity?capacity-confirmed:null;
+    const pct=capacity?Math.min(100,Math.round(confirmed/capacity*100)):0;
+    const color=free!==null&&free<=5?'#ef4444':'var(--gold)';
+    return `<div class="stat-card">
+      <div class="stat-icon">${icon}</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:28px;color:var(--gold-dark);">${confirmed}${capacity?` / ${capacity}`:''}</div>
+      <div class="stat-label">${title}</div>
+      ${capacity?`<div style="margin-top:8px;background:var(--warm);border-radius:20px;height:6px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${color};border-radius:20px;transition:width .5s;"></div></div>
+      <div style="font-size:12px;margin-top:4px;color:${free<=5&&free!==null?'#ef4444':'var(--ink-light)'};">${free!==null?free+' Plätze frei':''}</div>`:''}
+    </div>`;
+  }
+
+  const capEl=document.getElementById('capacity-cards');
+  if(capEl){
+    capEl.innerHTML=
+      capCard('⛪','Trauung (Zugesagt)',ceremonyGuests.length,ceremony?.capacity||null)+
+      capCard('🎉','Abendessen (Zugesagt)',dinnerGuests.length,dinner?.capacity||null);
+  }
+
+  const filtered=guestFilter==='all'?G
+    :guestFilter==='ceremony'?G.filter(g=>g.invite_type==='ceremony'||g.invite_type==='both'||!g.invite_type)
+    :guestFilter==='dinner'?G.filter(g=>g.invite_type==='dinner'||g.invite_type==='both'||!g.invite_type)
+    :G.filter(g=>g.status===guestFilter);
+
+  document.getElementById('guest-count-label').textContent=`${G.filter(g=>g.status==='yes').length} zugesagt · ${G.length} total eingeladen`;
   const smap={yes:'sb-yes',maybe:'sb-maybe',no:'sb-no',pending:'sb-pending'};
   const slabel={yes:'Zugesagt ✅',maybe:'Vielleicht ❓',no:'Abgesagt ❌',pending:'Ausstehend ⏳'};
+  const imap={both:'⛪🎉',ceremony:'⛪',dinner:'🎉'};
+
   document.getElementById('guest-list').innerHTML=filtered.length
     ? filtered.map(g=>`<div class="guest-card">
         <div class="guest-avatar">${g.name.slice(0,2).toUpperCase()}</div>
         <div style="flex:1">
           <div class="guest-name">${g.name}</div>
-          <div class="guest-meta">${g.side}${g.note?' · '+g.note:''}</div>
+          <div class="guest-meta">${g.side||''} ${imap[g.invite_type]||'⛪🎉'}${g.note?' · '+g.note:''}</div>
         </div>
-        <span class="status-badge ${smap[g.status]||'sb-pending'}">${slabel[g.status]||'Ausstehend'}</span>
+        <select class="fi" style="width:130px;padding:5px 8px;font-size:12px;" onchange="updateGuestStatus('${g.id}',this.value)">
+          <option value="pending" ${g.status==='pending'?'selected':''}>⏳ Ausstehend</option>
+          <option value="yes" ${g.status==='yes'?'selected':''}>✅ Zugesagt</option>
+          <option value="maybe" ${g.status==='maybe'?'selected':''}>❓ Vielleicht</option>
+          <option value="no" ${g.status==='no'?'selected':''}>❌ Abgesagt</option>
+        </select>
+        <button class="btn btn-sm" onclick="editGuest('${g.id}',${JSON.stringify(g.name)},${JSON.stringify(g.side||'')},'${g.status}',${JSON.stringify(g.note||'')},'${g.invite_type||'both'}')">✏️</button>
         <button class="btn btn-sm btn-danger" onclick="deleteGuest('${g.id}')">✕</button>
       </div>`).join('')
     : '<div class="empty"><div class="empty-icon">👥</div><p>Keine Gäste in dieser Kategorie</p></div>';
 }
 
+async function updateGuestStatus(id,status){
+  await sb.from('hw_guests').update({status}).eq('id',id);
+  renderGuests(); renderDashboard();
+}
+
 async function saveGuest(){
   const name=document.getElementById('g-name').value.trim();
+  const id=document.getElementById('g-id').value;
   if(!name){alert('Bitte Name eingeben.');return;}
-  await sb.from('hw_guests').insert({name,side:document.getElementById('g-side').value,status:document.getElementById('g-status').value,note:document.getElementById('g-note').value.trim(),added_by:CU});
+  const data={name,side:document.getElementById('g-side').value,status:document.getElementById('g-status').value,note:document.getElementById('g-note').value.trim(),invite_type:document.getElementById('g-invite').value,added_by:CU};
+  if(id){await sb.from('hw_guests').update(data).eq('id',id);}
+  else{await sb.from('hw_guests').insert(data);}
   cm('modal-guest'); renderGuests(); renderDashboard();
-  document.getElementById('g-name').value=''; document.getElementById('g-note').value='';
 }
 
 async function deleteGuest(id){if(!confirm('Gast entfernen?'))return;await sb.from('hw_guests').delete().eq('id',id);renderGuests();renderDashboard();}
