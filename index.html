@@ -172,6 +172,10 @@ textarea.fi{resize:vertical;min-height:80px;}
 .song-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--w);border:1px solid var(--gl);border-radius:3px;margin-bottom:8px;}
 .song-t{font-weight:500;flex:1;}
 .song-a{font-size:12px;color:var(--il);}
+.band-card{background:var(--w);border:1px solid var(--gl);border-radius:3px;padding:1.25rem;margin-bottom:10px;box-shadow:var(--sh);}
+.band-head{display:flex;justify-content:space-between;align-items:flex-start;}
+.band-name{font-family:'Cormorant Garamond',serif;font-size:20px;}
+.band-meta{font-size:12px;color:var(--il);margin-top:3px;}
 
 /* SITZPLAN */
 .table-card{background:var(--w);border:1px solid var(--gl);border-radius:3px;padding:1.25rem;margin-bottom:1rem;box-shadow:var(--sh);}
@@ -391,9 +395,13 @@ textarea.fi{resize:vertical;min-height:80px;}
       <!-- MUSIK -->
       <div id="sec-musik" style="display:none;">
         <div class="section-header">
-          <div><div class="section-title">Musikwunschliste</div><div class="section-sub">Songs für jeden Moment</div></div>
-          <button class="btn btn-gold btn-sm" style="width:auto;" onclick="openModal('modal-musik')">+ Song</button>
+          <div><div class="section-title">Musik</div><div class="section-sub">Songs, Bands & DJ</div></div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-outline" onclick="openModal('modal-band')">+ Band / DJ</button>
+            <button class="btn btn-gold btn-sm" style="width:auto;" onclick="openModal('modal-musik')">+ Song</button>
+          </div>
         </div>
+        <div id="band-list"></div>
         <div id="musik-list"></div>
       </div>
 
@@ -536,6 +544,23 @@ textarea.fi{resize:vertical;min-height:80px;}
   </div>
 </div>
 
+<div id="modal-band" class="mo" style="display:none;" onclick="moc(event,'modal-band')">
+  <div class="md">
+    <div class="mdt">Band / DJ / Musiker</div>
+    <div class="fg"><label class="fl">Typ</label>
+      <select id="band-type" class="fi"><option value="Band">🎸 Band</option><option value="DJ">🎧 DJ</option><option value="Solist">🎤 Solist / Sängerin</option><option value="Duo">🎻 Duo</option><option value="Orchester">🎺 Orchester / Ensemble</option><option value="Sonstiges">🎵 Sonstiges</option></select></div>
+    <div class="fg"><label class="fl">Name</label><input type="text" id="band-name" class="fi" placeholder="z.B. The Wedding Band, DJ Marco..."/></div>
+    <div class="fg"><label class="fl">Aufgabe / Wann</label>
+      <select id="band-role" class="fi"><option value="Trauung">⛪ Trauung / Einzug</option><option value="Apéro">🥂 Apéro / Cocktailstunde</option><option value="Dinner">🍽 Dinner</option><option value="Party">🎉 Abendparty</option><option value="Ganzer Tag">🌟 Ganzer Tag</option></select></div>
+    <div class="fg"><label class="fl">Kontakt / Website</label><input type="text" id="band-contact" class="fi" placeholder="Tel., E-Mail oder Website"/></div>
+    <div class="fg"><label class="fl">Preis (CHF, optional)</label><input type="number" id="band-price" class="fi" placeholder="z.B. 2500"/></div>
+    <div class="fg"><label class="fl">Status</label>
+      <select id="band-status" class="fi"><option value="angefragt">Angefragt</option><option value="gebucht">Gebucht ✅</option><option value="abgesagt">Abgesagt</option><option value="option">Option</option></select></div>
+    <div class="fg"><label class="fl">Notiz</label><textarea id="band-note" class="fi" placeholder="Besonderheiten, Setlist-Wünsche..."></textarea></div>
+    <div class="mda"><button class="btn" onclick="cm('modal-band')">Abbrechen</button><button class="btn btn-gold" style="width:auto;" onclick="saveBand()">Speichern</button></div>
+  </div>
+</div>
+
 <div id="modal-note" class="mo" style="display:none;" onclick="moc(event,'modal-note')">
   <div class="md">
     <div class="mdt">Notiz</div>
@@ -655,6 +680,8 @@ function openGuestModal(g){
   document.getElementById('g-status').value=g?.status||'pending';
   document.getElementById('g-menu').value=g?.menu||'';
   document.getElementById('g-note').value=g?.note||'';
+  document.getElementById('g-save-btn').disabled=false;
+  document.getElementById('g-save-btn').textContent='Speichern';
   openModal('modal-guest');
 }
 
@@ -695,9 +722,14 @@ async function updateGStatus(id,status){await sb.from('hw_guests').update({statu
 async function saveGuest(){
   const name=document.getElementById('g-name').value.trim();
   if(!name){alert('Name eingeben.');return;}
-  const d={name,side:document.getElementById('g-side').value,invite_type:document.getElementById('g-invite').value,status:document.getElementById('g-status').value,menu:document.getElementById('g-menu').value,note:document.getElementById('g-note').value.trim(),added_by:CU};
-  if(editingGuest){await sb.from('hw_guests').update(d).eq('id',editingGuest.id);}
-  else{await sb.from('hw_guests').insert(d);}
+  const btn=document.getElementById('g-save-btn');
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span>Speichern...';
+  const d={name,side:document.getElementById('g-side').value,invite_type:document.getElementById('g-invite').value,status:document.getElementById('g-status').value,menu:document.getElementById('g-menu').value||null,note:document.getElementById('g-note').value.trim(),added_by:CU};
+  let err;
+  if(editingGuest){const r=await sb.from('hw_guests').update(d).eq('id',editingGuest.id);err=r.error;}
+  else{const r=await sb.from('hw_guests').insert(d);err=r.error;}
+  btn.disabled=false;btn.textContent='Speichern';
+  if(err){alert('Fehler beim Speichern: '+err.message);return;}
   cm('modal-guest');editingGuest=null;renderGuests();renderDashboard();
 }
 async function delGuest(id){if(!confirm('Gast entfernen?'))return;await sb.from('hw_guests').delete().eq('id',id);renderGuests();renderDashboard();}
@@ -921,8 +953,53 @@ async function saveTagesablauf(){
 }
 async function delTA(id){if(!confirm('Löschen?'))return;await sb.from('hw_tagesablauf').delete().eq('id',id);renderTagesablauf();}
 
+// ── BANDS ──
+async function renderBands(){
+  const{data}=await sb.from('hw_bands').select('*').order('created_at');
+  const B=data||[];
+  const statusMap={gebucht:'sb-yes',angefragt:'sb-maybe',abgesagt:'sb-no',option:'sb-pending'};
+  const typeIcon={Band:'🎸',DJ:'🎧',Solist:'🎤',Duo:'🎻',Orchester:'🎺',Sonstiges:'🎵'};
+  document.getElementById('band-list').innerHTML=B.length
+    ?`<div style="font-family:'Cormorant Garamond',serif;font-size:20px;margin-bottom:12px;color:var(--gd);">Bands & Musiker</div>`+B.map(b=>`<div class="band-card">
+      <div class="band-head">
+        <div>
+          <div class="band-name">${typeIcon[b.type]||'🎵'} ${b.name}</div>
+          <div class="band-meta">${b.type} · ${b.role}${b.contact?' · '+b.contact:''}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          ${b.price?`<span class="tag">CHF ${Number(b.price).toLocaleString('de-CH')}</span>`:''}
+          <span class="${statusMap[b.status]||'sb-pending'}">${b.status}</span>
+          <button class="btn btn-sm btn-danger" onclick="delBand('${b.id}')">✕</button>
+        </div>
+      </div>
+      ${b.note?`<div style="font-size:13px;color:var(--il);margin-top:8px;padding-top:8px;border-top:1px solid var(--warm);">💬 ${b.note}</div>`:''}
+    </div>`).join('')
+    :'';
+}
+
+async function saveBand(){
+  const name=document.getElementById('band-name').value.trim();
+  if(!name){alert('Name eingeben.');return;}
+  const{error}=await sb.from('hw_bands').insert({
+    type:document.getElementById('band-type').value,
+    name,
+    role:document.getElementById('band-role').value,
+    contact:document.getElementById('band-contact').value.trim(),
+    price:document.getElementById('band-price').value||null,
+    status:document.getElementById('band-status').value,
+    note:document.getElementById('band-note').value.trim()
+  });
+  if(error){alert('Fehler: '+error.message);return;}
+  cm('modal-band');
+  ['band-name','band-contact','band-price','band-note'].forEach(id=>document.getElementById(id).value='');
+  renderMusik();
+}
+
+async function delBand(id){if(!confirm('Entfernen?'))return;await sb.from('hw_bands').delete().eq('id',id);renderMusik();}
+
 // ── MUSIK ──
 async function renderMusik(){
+  await renderBands();
   const{data}=await sb.from('hw_musik').select('*').order('category');
   const M=data||[];
   const cats=['Erster Tanz','Einzug','Cocktail','Dinner','Party','Wunsch'];
